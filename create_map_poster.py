@@ -410,7 +410,7 @@ def fetch_graph(point, dist) -> MultiDiGraph | None:
     """
     Fetch street network graph from OpenStreetMap.
 
-    Uses caching to avoid redundant downloads. Fetches all network types
+    Uses caching to avoid redundant downloads. Fetches drive network types
     within the specified distance from the center point.
 
     Args:
@@ -428,6 +428,8 @@ def fetch_graph(point, dist) -> MultiDiGraph | None:
         return cast(MultiDiGraph, cached)
 
     try:
+        # Set timeout to prevent hanging on slow downloads
+        ox.settings.timeout = 60
         g = ox.graph_from_point(point, dist=dist, dist_type='bbox', network_type='all', truncate_by_edge=True)
         # Rate limit between requests
         time.sleep(0.5)
@@ -542,7 +544,7 @@ def create_poster(
         water = fetch_features(
             point,
             compensated_dist,
-            tags={"natural": ["water", "bay", "strait"], "waterway": "riverbank"},
+            tags={"natural": ["water", "bay", "strait"], "waterway": ["river", "stream", "canal", "riverbank"]},
             name="water",
         )
         pbar.update(1)
@@ -571,7 +573,7 @@ def create_poster(
     # 3. Plot Layers
     # Layer 1: Polygons (filter to only plot polygon/multipolygon geometries, not points)
     if water is not None and not water.empty:
-        # Filter to only polygon/multipolygon geometries to avoid point features showing as dots
+        # Filter to polygon geometries for filled water bodies
         water_polys = water[water.geometry.type.isin(["Polygon", "MultiPolygon"])]
         if not water_polys.empty:
             # Project water features in the same CRS as the graph
@@ -580,6 +582,15 @@ def create_poster(
             except Exception:
                 water_polys = water_polys.to_crs(g_proj.graph['crs'])
             water_polys.plot(ax=ax, facecolor=THEME['water'], edgecolor='none', zorder=0.5)
+
+        # Also plot linear water features like rivers
+        water_lines = water[water.geometry.type.isin(["LineString", "MultiLineString"])]
+        if not water_lines.empty:
+            try:
+                water_lines = ox.projection.project_gdf(water_lines)
+            except Exception:
+                water_lines = water_lines.to_crs(g_proj.graph['crs'])
+            water_lines.plot(ax=ax, color=THEME['water'], linewidth=2, zorder=0.5)
 
     if parks is not None and not parks.empty:
         # Filter to only polygon/multipolygon geometries to avoid point features showing as dots
@@ -734,7 +745,7 @@ def create_poster(
     )
 
     # --- ATTRIBUTION (bottom right) ---
-    if FONTS:
+    """ if FONTS:
         font_attr = FontProperties(fname=FONTS["light"], size=8)
     else:
         font_attr = FontProperties(family="monospace", size=8)
@@ -750,7 +761,7 @@ def create_poster(
         va="bottom",
         fontproperties=font_attr,
         zorder=11,
-    )
+    ) """
 
     # 5. Save
     print(f"Saving to {output_file}...")
